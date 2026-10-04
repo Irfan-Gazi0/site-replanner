@@ -38,13 +38,18 @@ REASSIGNED = "#c44e52"
 BAR_HEIGHT = 0.6
 
 
+def assignments(plans: list[dict]) -> list[dict]:
+    """Every assignment in every plan given, in file order."""
+    return [a for plan in plans for a in plan["assignments"]]
+
+
 def resource_order(plans: list[dict]) -> list[str]:
     """Resource rows over every plan given: robots (R*) first, then crew, by ID.
 
     The plan files carry no `kind`, so the ID prefix is the only signal here.
     Row order is otherwise arbitrary, and R-first matches tasks.json (§3.1).
     """
-    seen = {a["resource"] for plan in plans for a in plan["assignments"]}
+    seen = {a["resource"] for a in assignments(plans)}
     return sorted(seen, key=lambda r: (not r.startswith("R"), r))
 
 
@@ -73,12 +78,12 @@ def draw_panel(ax, plan: dict, rows: list[str], outlined: set[str]) -> None:
     for assignment in plan["assignments"]:
         y = rows.index(assignment["resource"])
         start, end = assignment["start"], assignment["end"]
-        is_out = assignment["task"] in outlined
+        is_reassigned = assignment["task"] in outlined
         ax.broken_barh(
             [(start, end - start)], (y - BAR_HEIGHT / 2, BAR_HEIGHT),
             facecolors=ZONE_COLOURS.get(assignment["zone"], OTHER_ZONE),
-            edgecolors=REASSIGNED if is_out else "white",
-            linewidth=2.0 if is_out else 0.8,
+            edgecolors=REASSIGNED if is_reassigned else "white",
+            linewidth=2.0 if is_reassigned else 0.8,
         )
         ax.text((start + end) / 2, y, assignment["task"],
                 ha="center", va="center", color="white", fontsize=8, fontweight="bold")
@@ -100,23 +105,24 @@ def draw_panel(ax, plan: dict, rows: list[str], outlined: set[str]) -> None:
 def render(plans: list[dict], out: pathlib.Path) -> pathlib.Path:
     """Draw one stacked panel per plan and write the PNG."""
     rows = resource_order(plans)
-    horizon = max(a["end"] for plan in plans for a in plan["assignments"])
+    horizon = max(a["end"] for a in assignments(plans))
 
     fig, axes = plt.subplots(len(plans), 1, sharex=True,
                              figsize=(10, 1.1 + 1.0 * len(rows) * len(plans)))
     if len(plans) == 1:
         axes = [axes]
 
-    for i, (ax, plan) in enumerate(zip(axes, plans)):
-        outlined = reassigned(plans[i - 1], plan) if i else set()
-        draw_panel(ax, plan, rows, outlined)
+    previous: dict | None = None
+    for ax, plan in zip(axes, plans):
+        draw_panel(ax, plan, rows, reassigned(previous, plan) if previous else set())
+        previous = plan
 
     axes[-1].set_xlim(0, horizon + 5)
     axes[-1].set_xlabel("sim minutes")
 
+    drawn = {a["zone"] for a in assignments(plans)}
     handles = [mpatches.Patch(facecolor=colour, label=f"zone {zone}")
-               for zone, colour in ZONE_COLOURS.items()
-               if any(a["zone"] == zone for plan in plans for a in plan["assignments"])]
+               for zone, colour in ZONE_COLOURS.items() if zone in drawn]
     handles.append(mpatches.Patch(facecolor="white", edgecolor=REASSIGNED,
                                   linewidth=2.0, label="reassigned"))
     fig.legend(handles=handles, loc="lower center", ncol=len(handles),
