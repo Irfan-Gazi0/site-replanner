@@ -302,6 +302,11 @@ def _diff(world: dict, result: dict) -> dict:
     }
 
 
+# Public name for the same helper: the P3 bridge needs a diff for the initial
+# plan, which it solves directly instead of running through the graph.
+plan_diff = _diff
+
+
 # --------------------------------------------------------------------------- #
 # build
 # --------------------------------------------------------------------------- #
