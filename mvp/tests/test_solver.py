@@ -2,7 +2,9 @@
 
 One test per row of the oracle table in spec §3.1, plus a `check_plan` test on
 the hand-written plan in `snapshot_t20.json`. The initial plan has ties, so
-nothing here asserts an exact resource unless the table says it is forced.
+nothing here asserts an exact resource unless the table says it is forced -
+which tie the solver picks is stable (see `test_repeated_solves_are_identical`)
+but it is not part of the contract.
 """
 
 import json
@@ -81,6 +83,24 @@ def test_crew_unavailable_indefinitely_is_infeasible():
     r = solve(TASKS, SNAPSHOT, cs)
     assert r["status"] == "INFEASIBLE"
     assert "install" in r["reason"]
+
+
+def test_repeated_solves_are_identical():
+    """Same input, same plan - not just the same objective.
+
+    The objective has ties (R1 and R2 are interchangeable transport robots), and
+    with `num_workers = 8` whichever worker won the race broke the tie, so the
+    same input produced different plans run to run. The solver now runs one
+    worker; this is the regression test for that. It compares runs against each
+    other rather than against a hard-coded resource map, because the tie itself
+    is a solver-version detail - the guarantee is stability, not a given answer.
+    """
+    first = solve(TASKS, EMPTY_WORLD, [])
+    for _ in range(4):
+        again = solve(TASKS, EMPTY_WORLD, [])
+        assert again["assignments"] == first["assignments"]
+        assert again["makespan"] == first["makespan"]
+        assert again["n_reassigned"] == first["n_reassigned"]
 
 
 def test_check_plan_accepts_the_hand_written_snapshot_plan():

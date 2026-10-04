@@ -8,6 +8,11 @@ The bridge owns no planning logic: it builds `world` from the latest
 `/twin/state`, hands the event to `mvp.agents.graph`, and publishes whatever
 comes back. It is also the only place that keeps `active_constraints` across
 events, so an earlier disruption still applies to every later replan.
+
+`/twin/state` and `/twin/events` are separate topics with no ordering guarantee
+between them, so a fault can reach the queue before the first state does. The
+worker loop holds every twin or narrative event until the initial plan has been
+attempted (`run`), which is why the handlers can treat `node.state` as set.
 """
 
 from __future__ import annotations
@@ -110,6 +115,7 @@ class Bridge:
         self.prev_plan: list[dict] = []
         self.plan_id = 0
         self.thread_seq = 0
+        self.started = False       # the initial plan has been attempted
         RUNS.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------- plan record #
@@ -135,6 +141,7 @@ class Bridge:
 
     def handle_initial(self, event: dict) -> None:
         """The first `/twin/state` triggers the initial plan. Auto-approved."""
+        self.started = True
         world = world_from_state(self.node.state, self.prev_plan)
         self.node.publish_status(self.plan_id, "replanning", "initial plan")
         result = solve_plan(self.tasks, world, self.active_constraints,
@@ -177,21 +184,35 @@ class Bridge:
 
     # -------------------------------------------------------------------- loop #
 
+    def _dispatch(self, event: dict) -> None:
+        if event["source"] == "initial":
+            self.handle_initial(event)
+        else:
+            self.handle_replan(event)
+
     def run(self) -> int:
         spin = threading.Thread(target=rclpy.spin, args=(self.node,), daemon=True)
         spin.start()
         self.node.get_logger().info(
             f"bridge up (auto_approve={self.auto_approve}); waiting for /twin/state")
+        early: list[dict] = []
         try:
             while rclpy.ok():
                 try:
                     event = self.events.get(timeout=0.2)
                 except queue.Empty:
                     continue
-                if event["source"] == "initial":
-                    self.handle_initial(event)
-                else:
-                    self.handle_replan(event)
+                if not self.started and event["source"] != "initial":
+                    # A fault published before the first `/twin/state` would
+                    # otherwise reach `world_from_state(None, ...)`. Hold it in
+                    # arrival order and replan once there is a plan to repair.
+                    early.append(event)
+                    self.node.get_logger().info(
+                        f"holding {event.get('source')} event until the initial plan")
+                    continue
+                self._dispatch(event)
+                while early:
+                    self._dispatch(early.pop(0))
         except KeyboardInterrupt:
             pass
         return 0

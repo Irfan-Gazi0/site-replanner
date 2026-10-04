@@ -220,7 +220,14 @@ def solve(tasks_doc: dict, world: dict, constraints: list[dict],
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
-    solver.parameters.num_workers = 8
+    # One worker, on purpose. The objective has ties (two interchangeable
+    # transport robots), and with 8 workers whichever one wins the race decides
+    # the tie: the same input gave R2=[T1,T2,T7,T8] on one run and
+    # R1=[T1,T7] R2=[T2,T8] on the next - equal objective, different plan. A
+    # single worker makes the search deterministic, which is what lets the tests
+    # and the eval pin exact assignments. The model is 11 tasks and solves in
+    # ~4 ms single-threaded, so the parallelism bought nothing.
+    solver.parameters.num_workers = 1
     status = solver.solve(m)
     name = solver.status_name(status)
 
