@@ -1,0 +1,28 @@
+{
+  "time_unit": "sim_minutes",
+  "zones": [
+    {"id": "A", "x": -7.0, "z": 3.0},
+    {"id": "B", "x": 7.0, "z": 3.0},
+    {"id": "HALL", "x": 0.0, "z": 3.0},
+    {"id": "LAYDOWN", "x": 0.0, "z": -8.0}
+  ],
+  "resources": [
+    {"id": "R1", "kind": "robot", "name": "Cargo robot 1", "capabilities": ["transport"], "home_x": -2.0, "home_z": -9.0},
+    {"id": "R2", "kind": "robot", "name": "Cargo robot 2", "capabilities": ["transport"], "home_x": 2.0, "home_z": -9.0},
+    {"id": "R3", "kind": "robot", "name": "Ceiling drilling robot", "capabilities": ["drill"], "home_x": 0.0, "home_z": -11.0},
+    {"id": "C1", "kind": "crew", "name": "Electrical crew", "capabilities": ["install", "transport", "inspect"], "home_x": 0.0, "home_z": -6.0}
+  ],
+  "tasks": [
+    {"id": "T1", "name": "Deliver cable tray to zone A", "zone": "A", "capability": "transport", "duration": 15, "preds": []},
+    {"id": "T2", "name": "Deliver cable tray to zone B", "zone": "B", "capability": "transport", "duration": 15, "preds": []},
+    {"id": "T3", "name": "Drill ceiling anchors in zone A", "zone": "A", "capability": "drill", "duration": 30, "preds": []},
+    {"id": "T4", "name": "Drill ceiling anchors in zone B", "zone": "B", "capability": "drill", "duration": 30, "preds": []},
+    {"id": "T5", "name": "Install cable tray in zone A", "zone": "A", "capability": "install", "duration": 35, "preds": ["T1", "T3"]},
+    {"id": "T6", "name": "Install cable tray in zone B", "zone": "B", "capability": "install", "duration": 35, "preds": ["T2", "T4"]},
+    {"id": "T7", "name": "Deliver racks to zone A", "zone": "A", "capability": "transport", "duration": 20, "preds": ["T5"]},
+    {"id": "T8", "name": "Deliver racks to zone B", "zone": "B", "capability": "transport", "duration": 20, "preds": ["T6"]},
+    {"id": "T9", "name": "Set racks and run structured cabling in zone A", "zone": "A", "capability": "install", "duration": 30, "preds": ["T7"]},
+    {"id": "T10", "name": "Set racks and run structured cabling in zone B", "zone": "B", "capability": "install", "duration": 30, "preds": ["T8"]},
+    {"id": "T11", "name": "Final inspection of the hall", "zone": "HALL", "capability": "inspect", "duration": 15, "preds": ["T9", "T10"]}
+  ]
+}

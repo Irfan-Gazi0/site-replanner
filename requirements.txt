@@ -1,0 +1,11 @@
+# Runtime deps. rclpy is NOT listed: it comes from ROS 2 Humble (see env.sh).
+langgraph>=1.2,<2
+ortools>=9.15,<10
+openai>=3.24,<4
+pydantic>=2.13,<3
+# pytest 9 crashes when ROS Humble is sourced (its launch_testing plugin uses a removed hook argument)
+pytest>=8,<9
+matplotlib
+# The system brotli (1.0.9) leaks in via --system-site-packages, but httpx2 (openai's HTTP
+# client) calls Decompressor.process(..., output_buffer_limit=...), which needs brotli >= 1.1.
+brotli>=1.1

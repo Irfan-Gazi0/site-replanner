@@ -1,0 +1,19 @@
+{
+  "t_now": 20,
+  "completed": ["T1", "T2"],
+  "ongoing": [{"task": "T3", "resource": "R3", "start": 0}],
+  "faulted": [],
+  "prev_plan": [
+    {"task": "T1", "resource": "R1", "start": 0, "end": 15},
+    {"task": "T2", "resource": "R2", "start": 0, "end": 15},
+    {"task": "T3", "resource": "R3", "start": 0, "end": 30},
+    {"task": "T4", "resource": "R3", "start": 30, "end": 60},
+    {"task": "T5", "resource": "C1", "start": 30, "end": 65},
+    {"task": "T6", "resource": "C1", "start": 65, "end": 100},
+    {"task": "T7", "resource": "R1", "start": 65, "end": 85},
+    {"task": "T8", "resource": "R2", "start": 100, "end": 120},
+    {"task": "T9", "resource": "C1", "start": 100, "end": 130},
+    {"task": "T10", "resource": "C1", "start": 130, "end": 160},
+    {"task": "T11", "resource": "C1", "start": 160, "end": 175}
+  ]
+}

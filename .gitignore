@@ -1,0 +1,25 @@
+.venv/
+runs/
+.env
+__pycache__/
+.pytest_cache/
+ros2_ws/
+
+# Private working files: research notes (incl. copyrighted PDFs), spec, log, Claude config
+Research/
+CLAUDE.md
+PROGRESS.md
+shortplan_executable.md
+.claude/
+
+# Unity: commit only Assets/ Packages/ ProjectSettings/
+DataHallTwin/Library/
+DataHallTwin/Temp/
+DataHallTwin/Logs/
+DataHallTwin/UserSettings/
+DataHallTwin/obj/
+DataHallTwin/Build/
+DataHallTwin/.vscode/
+DataHallTwin/*.csproj
+DataHallTwin/*.sln
+DataHallTwin/*.slnx
