@@ -1,5 +1,5 @@
 # Relative paths only: the project path contains a space (see CLAUDE.md).
-.PHONY: test test-live cases eval eval-probe report demo-headless demo-escalate sync-unity
+.PHONY: test test-live cases eval eval-probe report demo-headless demo-escalate sync-unity gantt
 
 test:
 	pytest -m "not live" -q
@@ -27,6 +27,10 @@ demo-headless:
 
 demo-escalate:
 	scripts/headless_demo.sh --fault R3@25 --timeout 30 --expect-escalated --expect-dispatched 1
+
+# Before/after Gantt for the README. Needs the two plans make demo-headless writes.
+gantt:
+	python -m mvp.viz.gantt runs/plans/plan_001.json runs/plans/plan_002.json -o docs/replan_r2.png
 
 sync-unity:
 	mkdir -p DataHallTwin/Assets/StreamingAssets

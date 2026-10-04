@@ -1,7 +1,35 @@
-# Data-center fit-out replanner
+# Site replanner
 
-An LLM turns site disruptions into verified constraints; CP-SAT replans a mixed robot + crew
-data-center fit-out schedule; a Unity digital twin executes it over ROS 2.
+When something goes wrong on a construction site - a robot breaks down, a delivery runs late - the
+day's schedule has to be rebuilt. This rebuilds it in seconds, and checks the new plan before
+anyone acts on it.
+
+```
+  something goes wrong              what the system does
+  --------------------              --------------------
+
+  a robot breaks down  ---+
+                          +--->  READ      turn it into one rule
+  "racks are 2h late"  ---+                e.g. "robot 2 is out of action"
+                                             |
+                                           CHECK     is the rule real, and still doable?
+                                             |
+                                    doable --+-- impossible
+                                      |              |
+                                   REPLAN         say why, and stop
+                                   a new            ("only robot 3 can drill,
+                                   schedule          and it is down")
+                                      |
+                                   APPROVE   a person says go
+                                      |
+                                    SITE     robots and crew start the new plan
+```
+
+Nothing is guessed. The language model only reads the message; the schedule itself is worked out by
+a solver, and a person signs it off before any robot moves.
+
+In one line, for engineers: an LLM turns site disruptions into verified constraints; CP-SAT replans
+a mixed robot + crew data-center fit-out schedule; a Unity digital twin executes it over ROS 2.
 
 ## Demo
 
@@ -130,7 +158,24 @@ always be traced back to the exact cases and model that produced it.
 
 ## Before and after the replan
 
-The Gantt comparison (`mvp/viz/gantt.py`) is not written yet; it is the next commit.
+![Two Gantt charts. The initial plan runs T1 and T2 on cargo robot R2; after R2 faults at t=12 both
+move to R1, outlined in red, and the makespan stays at 175.](docs/replan_r2.png)
+
+Both panels come from the plan files `make demo-headless` writes. Rows are resources, bars are
+tasks coloured by zone, the dashed line is `t_now`, and a red outline marks a task the replan moved
+to a different resource.
+
+The replan is the interesting part: R2 faults at t=12 with T2 not yet started and T1 reverted to
+pending (the twin reverts a faulted resource's task before the bridge replans), the solver puts
+both on R1 - the only other transport robot - and **the makespan does not move**. The
+175 minutes are set by the chain T2, T6, T5, T10, T9, T11 through the single install-capable crew,
+so losing a cargo robot costs nothing until the crew is no longer the bottleneck. A schedule a
+human would have redrawn by hand gets re-derived in one solve, with the churn visible and priced
+(the objective charges 10 per reassignment, against 1000 per minute of makespan).
+
+```bash
+make gantt              # writes docs/replan_r2.png from runs/plans/plan_001.json and plan_002.json
+```
 
 ## Design decisions
 
@@ -165,6 +210,7 @@ metric. The benchmarks are different, so none of the numbers above are a compari
 source env.sh           # ROS 2 Humble + endpoint workspace + venv + the key file
 make test               # 59 tests, no API key, no ROS needed
 make demo-headless      # the closed loop with the fake twin, free
+make gantt              # the before/after chart above, from the plans that run wrote
 ```
 
 The benchmark costs money (one or more API calls per run), so it is a separate target and prints a
