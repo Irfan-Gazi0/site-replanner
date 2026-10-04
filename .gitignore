@@ -23,3 +23,7 @@ DataHallTwin/.vscode/
 DataHallTwin/*.csproj
 DataHallTwin/*.sln
 DataHallTwin/*.slnx
+
+# Unity screenshots: verification evidence, regenerated on demand
+DataHallTwin/Assets/Screenshots/
+DataHallTwin/Assets/Screenshots.meta
