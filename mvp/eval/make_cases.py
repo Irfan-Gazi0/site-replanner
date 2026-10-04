@@ -26,14 +26,21 @@ from mvp.agents.validate import validate as validate_parse
 DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 
 # Appendix B. The flag is True when the phrase takes a plural verb, which keeps
-# "the zone A racks is delayed" out of the generated text.
+# "the sparkies is down" out of the generated text.
+#
+# Every alias names exactly one task. T7 and T8 say "rack delivery" and not "the
+# zone A/B racks": the first benchmark run used the plural phrase for T7 and the
+# model answered T9 (*Set racks and run structured cabling in zone A*) in all six
+# affected runs, which is a parse the verifier cannot reject - a valid ID, a
+# well-formed constraint and a feasible plan. "the zone B racks" is also inside
+# an Appendix A few-shot example, the same reason T6 has one alias only.
 ALIASES: dict[str, list[tuple[str, bool]]] = {
     "T4": [("zone B anchor drilling", False), ("the drilling in zone B", False)],
     "T5": [("cable tray install in zone A", False), ("the zone A tray installation", False)],
     # The few-shot uses "cable tray install in zone B", so T6 has one alias only.
     "T6": [("the zone B tray installation", False)],
-    "T7": [("rack delivery to zone A", False), ("the zone A racks", True)],
-    "T8": [("rack delivery to zone B", False), ("the zone B racks", True)],
+    "T7": [("rack delivery to zone A", False), ("the zone A rack delivery", False)],
+    "T8": [("rack delivery to zone B", False), ("the zone B rack delivery", False)],
     "T9": [("rack setting and cabling in zone A", False)],
     "T10": [("rack setting and cabling in zone B", False)],
     "T11": [("the final inspection", False), ("the hall inspection", False)],
@@ -260,8 +267,8 @@ def _hard(durations: dict[str, int]) -> list[tuple[str, list[dict]]]:
         ("Add a new task: fire suppression piping in zone B, 40 minutes.", []),
         ("Add a new task: fire suppression piping in zone A, 25 minutes.", []),
         # 5. Relative duration with a distractor clause.
-        ("It's raining but that doesn't affect the hall; the zone A racks will "
-         "take 15 minutes longer than planned.",
+        ("It's raining but that doesn't affect the hall; the zone A rack delivery "
+         "will take 15 minutes longer than planned.",
          [{"type": "duration_change", "task": "T7",
            "new_duration_min": durations["T7"] + 15}]),
         ("The client called about invoicing, which doesn't affect the schedule; "

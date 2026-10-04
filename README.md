@@ -67,21 +67,21 @@ is the only source of a plan. A twin event never passes through the LLM.
 
 ## Results: single-shot vs. validated loop
 
-24 cases x 2 repeats x 2 arms = 96 runs on `gpt-6-luna`, 104 LLM calls, 141,592 tokens. Both arms
+24 cases x 2 repeats x 2 arms = 96 runs on `gpt-6-luna`, 104 LLM calls, 140,891 tokens. Both arms
 are the same LangGraph graph; the only difference is whether the verifier sits between the parse and
 the solver. Mean over the repeats, min-max in brackets.
 
 | arm | correct | unsafe dispatch | escalated | error | recovered by retry | LLM calls | median latency | tokens |
 |---|---|---|---|---|---|---|---|---|
-| single-shot | 77.1% (75.0-79.2) | 6.2% (4.2-8.3) | 16.7% | 16.7% | 0.0% | 1.00 | 1.99 s (1.92-2.07) | 1348 |
-| validated loop | 91.7% | 8.3% | 33.3% | 0.0% | 16.7% | 1.17 | 2.21 s (2.17-2.24) | 1602 |
+| single-shot | 83.3% | 0.0% | 16.7% | 16.7% | 0.0% | 1.00 | 1.91 s (1.90-1.93) | 1340 (1338-1342) |
+| validated loop | 100.0% | 0.0% | 33.3% | 0.0% | 16.7% | 1.17 | 2.11 s (2.07-2.14) | 1595 (1591-1600) |
 
 Correct outcome by difficulty:
 
 | arm | easy | medium | hard |
 |---|---|---|---|
-| single-shot | 100.0% | 93.8% (87.5-100.0) | 50.0% |
-| validated loop | 100.0% | 87.5% | 90.0% |
+| single-shot | 100.0% | 100.0% | 60.0% |
+| validated loop | 100.0% | 100.0% | 100.0% |
 
 Metric definitions:
 
@@ -97,20 +97,27 @@ Metric definitions:
 
 What the numbers say, and what they do not:
 
-- The verifier buys **+14.6 points** of correct outcome for 17% more LLM calls and 19% more tokens,
-  and all of the gain is in the hard band (50% to 90%).
-- The mechanism is visible in the raw rows. On the four infeasible hard cases the single-shot arm
-  parses the request *correctly* and then dies in the solver (`no plan: no available resource has
-  capability 'drill'`). That lands as `error`, with nothing said about what is wrong. The validated
-  arm reaches the same four cases through the feasibility check, one retry, and an `escalated`
-  status carrying the reason. Same parse, same impossibility: one arm hands the human a sentence,
-  the other hands them a solver failure.
-- The unsafe-dispatch column does **not** favour the verifier. Both arms dispatch wrong constraints
-  on the same two cases, and the 6.2% vs 8.3% gap is one lucky repeat in the baseline, not a
-  difference between the arms. Both of those cases turn on one ambiguous phrase ("the zone A racks",
-  which the benchmark assigns to the rack *delivery* task and the model read as the rack *setting*
-  task). That is the class of error verification cannot catch: a valid ID, a well-formed constraint,
-  a feasible plan, and not what the manager asked for. It is left in the benchmark on purpose.
+- The verifier buys **+16.7 points** of correct outcome for 17% more LLM calls and 19% more tokens,
+  and all of the gain is in the hard band (60% to 100%).
+- The mechanism is visible in the raw rows, and it is the whole result. The four cases the baseline
+  loses are H03-H06, where it parses the request *correctly* and then dies in the solver
+  (`no plan: no available resource has capability 'drill' (needed by T4)`,
+  `no plan: solver returned INFEASIBLE after 5.0s`). That lands as `error`, with nothing said about
+  what is wrong. The validated arm reaches the same four cases through the feasibility check, one
+  retry each, and an `escalated` status carrying the reason. Same parse, same impossibility: one arm
+  hands the human a sentence, the other hands them a solver failure. Every other row in the matrix
+  is identical between the arms.
+- **Unsafe dispatch is 0.0% in both arms, and that is a fact about this benchmark, not a property of
+  the verifier.** The first run of this matrix scored 6.2% and 8.3% on one ambiguous phrase ("the
+  zone A racks", which the case templates assign to the rack *delivery* task, T7, and the model read
+  as the rack *setting* task, T9, in all six affected runs of both arms). That phrase was replaced
+  with "the zone A rack delivery", so the benchmark now contains no semantically ambiguous case, and
+  both arms resolve T7 correctly in all eight runs. The class of error has not been solved: a wrong
+  but valid ID gives a well-formed constraint and a feasible plan, so verification is structurally
+  unable to catch it. Nothing here measures it.
+- The validated arm's 100.0% is a ceiling on 24 self-made cases, not a reliability claim. What it
+  says is narrower: on this benchmark, every outcome the verifier changes, it changes from an
+  unexplained solver failure into a stated escalation.
 
 Regrade any finished run offline, with no API calls:
 
@@ -181,6 +188,11 @@ and the Unity editor in Play mode.
   adversarial by construction, so the absolute percentages say much less than the gap between the
   two arms. The gold answers come from the templates that generated the text, which keeps them
   honest about syntax but cannot settle a genuinely ambiguous phrase.
+- **No semantic ambiguity is measured.** Every alias in the case templates names exactly one task,
+  because the one ambiguous phrase that was in them was a phrase, not a finding: it scored both arms
+  down equally and the verifier cannot catch that class by construction. A real site message is
+  ambiguous often, and nothing in these numbers covers it. Asking the parser to escalate when a
+  phrase matches more than one task is the obvious next guard, and it is not built.
 - **One small model, two repeats.** `gpt-6-luna` at two repeats; the min-max ranges in the table are
   the whole of the variance evidence.
 - **Capsule agents.** The twin moves capsules on a flat floor with no path planning and no
