@@ -1,0 +1,199 @@
+# Data-center fit-out replanner
+
+An LLM turns site disruptions into verified constraints; CP-SAT replans a mixed robot + crew
+data-center fit-out schedule; a Unity digital twin executes it over ROS 2.
+
+## Demo
+
+The video of the live Unity loop is the one piece still outstanding (initial dispatch, R2 fault
+replan, narrative replan with approval, R3 escalation). Until it lands, the whole loop runs headless
+in one command, with no API key and no Unity:
+
+```bash
+source env.sh
+make demo-headless      # bridge + fake twin, robot fault at t=20, replan, dispatch
+make demo-escalate      # the drilling robot fails: the system escalates instead of guessing
+```
+
+## What it does
+
+- **Two kinds of disruption, two paths.** A twin event (a robot faults) becomes a constraint in
+  plain code and never touches the LLM. A manager's sentence ("rack delivery to zone B is delayed by
+  two hours") goes to the LLM, which extracts constraints only.
+- **Nothing reaches the schedule unverified.** A parse is checked against the task catalogue, the
+  world state and the solver itself before anything is scheduled; a failed check is fed back to the
+  LLM as an error to fix, up to three attempts.
+- **Impossible is a valid answer.** When no schedule satisfies the request, the system escalates with
+  the reason ("no available resource has capability 'drill'") instead of dropping the inconvenient
+  constraint. A human approves every plan before it is dispatched.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    twin["Unity twin<br/>(or fake_twin.py)"]
+    say["manager message<br/>/manager/narrative"]
+    bridge["ROS bridge node"]
+    intake(["intake"])
+    translate(["translate<br/>(code, no LLM)"])
+    parse(["parse<br/>(LLM: constraints only)"])
+    validate(["validate<br/>(catalogue + world + feasibility)"])
+    solve(["solve<br/>(CP-SAT)"])
+    approve{{"approve<br/>(human gate)"}}
+    dispatch(["dispatch"])
+    rejected(["rejected"])
+    escalate(["escalate<br/>(to a human, with the reason)"])
+
+    twin -- "/twin/state, /twin/events" --> bridge
+    say --> bridge
+    bridge --> intake
+    intake -- "twin event" --> translate
+    intake -- "narrative" --> parse
+    translate --> validate
+    parse --> validate
+    validate -- "errors, attempt < 3" --> parse
+    validate -- "ok" --> solve
+    validate -- "no fix possible" --> escalate
+    solve -- "infeasible" --> escalate
+    solve --> approve
+    approve -- "y" --> dispatch
+    approve -- "n" --> rejected
+    dispatch -- "/plan/assignments" --> twin
+    dispatch -- "/plan/status" --> bridge
+```
+
+The LLM appears in exactly one node, and that node emits constraints, never a schedule. The solver
+is the only source of a plan. A twin event never passes through the LLM.
+
+## Results: single-shot vs. validated loop
+
+24 cases x 2 repeats x 2 arms = 96 runs on `gpt-6-luna`, 104 LLM calls, 141,592 tokens. Both arms
+are the same LangGraph graph; the only difference is whether the verifier sits between the parse and
+the solver. Mean over the repeats, min-max in brackets.
+
+| arm | correct | unsafe dispatch | escalated | error | recovered by retry | LLM calls | median latency | tokens |
+|---|---|---|---|---|---|---|---|---|
+| single-shot | 77.1% (75.0-79.2) | 6.2% (4.2-8.3) | 16.7% | 16.7% | 0.0% | 1.00 | 1.99 s (1.92-2.07) | 1348 |
+| validated loop | 91.7% | 8.3% | 33.3% | 0.0% | 16.7% | 1.17 | 2.21 s (2.17-2.24) | 1602 |
+
+Correct outcome by difficulty:
+
+| arm | easy | medium | hard |
+|---|---|---|---|
+| single-shot | 100.0% | 93.8% (87.5-100.0) | 50.0% |
+| validated loop | 100.0% | 87.5% | 90.0% |
+
+Metric definitions:
+
+- **correct**: the case expected a plan and the arm dispatched the gold constraints, or the case
+  expected an escalation and the arm escalated.
+- **unsafe dispatch**: a plan went out that should not have - either the case expected an escalation,
+  or the constraints differ from the gold. This counts the runs where the loop "fixes" an impossible
+  request by quietly weakening it.
+- **recovered by retry**: a correct outcome that needed more than one LLM call. Only the validated
+  arm can score here; the baseline has nothing to retry against.
+- **escalated / error**: deliberately separate. `escalated` is a reasoned hand-off to a human;
+  `error` is the solver failing on constraints nothing checked.
+
+What the numbers say, and what they do not:
+
+- The verifier buys **+14.6 points** of correct outcome for 17% more LLM calls and 19% more tokens,
+  and all of the gain is in the hard band (50% to 90%).
+- The mechanism is visible in the raw rows. On the four infeasible hard cases the single-shot arm
+  parses the request *correctly* and then dies in the solver (`no plan: no available resource has
+  capability 'drill'`). That lands as `error`, with nothing said about what is wrong. The validated
+  arm reaches the same four cases through the feasibility check, one retry, and an `escalated`
+  status carrying the reason. Same parse, same impossibility: one arm hands the human a sentence,
+  the other hands them a solver failure.
+- The unsafe-dispatch column does **not** favour the verifier. Both arms dispatch wrong constraints
+  on the same two cases, and the 6.2% vs 8.3% gap is one lucky repeat in the baseline, not a
+  difference between the arms. Both of those cases turn on one ambiguous phrase ("the zone A racks",
+  which the benchmark assigns to the rack *delivery* task and the model read as the rack *setting*
+  task). That is the class of error verification cannot catch: a valid ID, a well-formed constraint,
+  a feasible plan, and not what the manager asked for. It is left in the benchmark on purpose.
+
+Regrade any finished run offline, with no API calls:
+
+```bash
+python -m mvp.eval.report              # reads runs/eval/raw.jsonl
+```
+
+`runs/eval/results.json` records the SHA-256 of `cases.jsonl` and the model ID, so a table can
+always be traced back to the exact cases and model that produced it.
+
+## Before and after the replan
+
+The Gantt comparison (`mvp/viz/gantt.py`) is not written yet; it is the next commit.
+
+## Design decisions
+
+- **The LLM never writes the schedule.** It extracts constraints; CP-SAT assigns resources and
+  start times. The failure mode of a language model on a scheduling problem is a plausible-looking
+  schedule that violates a precedence nobody checked, so it is never asked for one.
+- **Twin events skip the LLM.** A robot fault is already structured. Sending it through a language
+  model would add latency, cost and a chance of mistranslation to a message that needs none of it,
+  so `translate` does it in about ten lines of Python. A twin event that fails validation escalates
+  immediately: there is nobody to re-prompt.
+- **The verifier checks meaning, not syntax.** Structured outputs already guarantee the shape. What
+  they cannot guarantee is that `T14` exists, that a completed task is not being rescheduled, that a
+  new dependency does not close a cycle, or that the result is solvable at all. The last check is a
+  real CP-SAT solve, so "I cannot do that" is a fact, not an opinion.
+- **A human approves every dispatch.** Approval is its own LangGraph node containing nothing but the
+  interrupt, because resuming an interrupt re-runs the node - so neither the LLM nor the solver may
+  live inside it.
+- **Escalation is an outcome, not a failure.** The benchmark's headline metric counts unsafe
+  dispatches, not escalations, because a system that refuses clearly is worth more on a construction
+  site than one that always answers.
+
+## Related work
+
+Deng, Fu, Li & Wang (arXiv [2506.18178](https://arxiv.org/abs/2506.18178)) run the same pipeline
+shape - narrative, LLM, constraints, CP-SAT, Unity twin - with a single LLM call and no released
+code. This repo adds the verifier and retry loop, the human approval gate, and the unsafe-dispatch
+metric. The benchmarks are different, so none of the numbers above are a comparison with theirs.
+
+## How to run
+
+```bash
+source env.sh           # ROS 2 Humble + endpoint workspace + venv + the key file
+make test               # 59 tests, no API key, no ROS needed
+make demo-headless      # the closed loop with the fake twin, free
+```
+
+The benchmark costs money (one or more API calls per run), so it is a separate target and prints a
+token extrapolation before the full matrix:
+
+```bash
+make cases              # regenerate the 24 cases (free, deterministic, seed 7)
+make eval-probe         # PAID: 20 runs, to price the full matrix
+make eval               # PAID: the full 24 x 2 x 2 matrix
+make report             # free: the tables above, from runs/eval/raw.jsonl
+```
+
+The live Unity twin needs three terminals: the ROS TCP endpoint, `python -m mvp.ros.bridge_node`,
+and the Unity editor in Play mode.
+
+## Limitations
+
+- **11 tasks and four resources.** Enough for a hall with two zones; not a schedule of a real
+  fit-out, where the interesting constraints are spatial and shift-based.
+- **A 24-case benchmark, written by this repo, weighted toward hard cases.** Ten of the 24 cases are
+  adversarial by construction, so the absolute percentages say much less than the gap between the
+  two arms. The gold answers come from the templates that generated the text, which keeps them
+  honest about syntax but cannot settle a genuinely ambiguous phrase.
+- **One small model, two repeats.** `gpt-6-luna` at two repeats; the min-max ranges in the table are
+  the whole of the variance evidence.
+- **Capsule agents.** The twin moves capsules on a flat floor with no path planning and no
+  collision; it shows which resource does what and when, not how a robot gets there.
+- **The approval gate is a terminal prompt.** One operator, one plan at a time, no audit trail.
+
+## Next steps
+
+1. An **LLM-direct baseline arm**: the model writes the schedule itself and `check_plan` counts the
+   violations. This answers the obvious question - why not just let the LLM schedule?
+2. **Infeasibility explanations**: enforcement literals plus
+   `solver.sufficient_assumptions_for_infeasibility()`, so an escalation names the conflicting
+   constraints rather than the missing capability alone.
+3. **A stronger-model arm** (`PARSER_MODEL=gpt-6.1-sol`): does verification matter less when the
+   parser is better?
+4. Unity AI Navigation, so agents path around racks instead of sliding through them.
