@@ -29,6 +29,7 @@ import time
 
 from mvp.agents import llm
 from mvp.agents.graph import build_graph, initial_state, tasks_doc
+from mvp.agents.schema import Constraint
 from mvp.eval.make_cases import gold_constraint
 from mvp.eval.report import aggregate, tables
 
@@ -36,7 +37,7 @@ DATA = pathlib.Path(__file__).resolve().parents[1] / "data"
 ARMS = ("single_shot", "validated")
 
 
-def _normalise(constraints) -> list[dict]:
+def _normalise(constraints: list[Constraint]) -> list[dict]:
     """Constraints as a sorted list of full field dicts, for comparison.
 
     Sorted, so the gold and the parse compare equal regardless of the order the
@@ -44,8 +45,8 @@ def _normalise(constraints) -> list[dict]:
     does not use it), which is what makes a gold slot dict and a parsed
     constraint directly comparable.
     """
-    dumps = [c.model_dump() if hasattr(c, "model_dump") else dict(c) for c in constraints]
-    return sorted(dumps, key=lambda d: json.dumps(d, sort_keys=True))
+    return sorted((c.model_dump() for c in constraints),
+                  key=lambda d: json.dumps(d, sort_keys=True))
 
 
 def _recording_parser(sink: list[dict]):
@@ -117,11 +118,10 @@ def _cost_summary(rows: list[dict], n_cases_total: int, n_arms: int, repeats: in
     calls = sum(r["attempts"] for r in rows)
     full_runs = n_cases_total * n_arms * repeats
     scale = full_runs / len(rows) if rows else 0
-    lines = [
-        f"{len(rows)} runs, {calls} LLM calls, {tokens} tokens.",
-        f"Full matrix is {full_runs} runs: about {int(tokens * scale)} tokens "
-        f"and {int(calls * scale)} calls.",
-    ]
+    lines = [f"{len(rows)} runs, {calls} LLM calls, {tokens} tokens."]
+    if len(rows) != full_runs:
+        lines.append(f"Full matrix is {full_runs} runs: about {int(tokens * scale)} "
+                     f"tokens and {int(calls * scale)} calls.")
     if price_per_mtok:
         lines.append(f"At ${price_per_mtok:.2f}/Mtok blended: this run "
                      f"${tokens / 1e6 * price_per_mtok:.4f}, "

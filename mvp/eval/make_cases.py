@@ -15,6 +15,7 @@ No LLM call and no `rclpy` import: generating the cases is free and offline.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import pathlib
 import random
@@ -100,10 +101,17 @@ def _time(rng: random.Random, hours: bool) -> tuple[int, str]:
 
 
 def _fill(template: tuple[str, bool], **slots: tuple[str, bool]) -> str | None:
-    """Render a template, or None if it needs a singular subject and got a plural."""
+    """Render a template, or None if it needs a singular subject and got a plural.
+
+    The subject is the first slot - the task or resource in every template here -
+    and only its number can make a template unusable. A caller that gets None
+    draws again rather than filtering the templates up front: filtering would be
+    tidier but consumes the RNG differently, and `cases.jsonl` is committed with
+    its SHA-256 recorded in `runs/eval/results.json`.
+    """
     text, needs_singular = template
-    subject = next(iter(slots.values()))
-    if needs_singular and subject[1]:
+    subject_is_plural = next(iter(slots.values()))[1]
+    if needs_singular and subject_is_plural:
         return None
     rendered = text.format(**{k: v[0] for k, v in slots.items()})
     return rendered[0].upper() + rendered[1:]
@@ -168,14 +176,6 @@ def _add_dependency(rng: random.Random, alias: bool, used: set[str]) -> tuple[st
             return text, {"type": "add_dependency", "before": before, "after": after}
 
 
-KINDS = {
-    "start_after": _start_after,
-    "duration_change": _duration_change,
-    "resource_unavailable": _resource_unavailable,
-    "add_dependency": _add_dependency,
-}
-
-
 def _pick(rng: random.Random, pool: tuple[str, ...], used: set[str]) -> str:
     """A member of `pool` that this case has not targeted yet."""
     free = [p for p in pool if p not in used] or list(pool)
@@ -186,11 +186,15 @@ def _pick(rng: random.Random, pool: tuple[str, ...], used: set[str]) -> str:
 
 def _one(rng: random.Random, kind: str, alias: bool, used: set[str],
          durations: dict[str, int], seen_res: set[str]) -> tuple[str, dict]:
+    if kind == "start_after":
+        return _start_after(rng, alias, used)
     if kind == "duration_change":
         return _duration_change(rng, alias, used, durations)
     if kind == "resource_unavailable":
         return _resource_unavailable(rng, alias, used, seen_res)
-    return KINDS[kind](rng, alias, used)
+    if kind == "add_dependency":
+        return _add_dependency(rng, alias, used)
+    raise ValueError(f"unknown constraint kind {kind!r}")
 
 
 # --------------------------------------------------------------------------- #
@@ -346,11 +350,8 @@ def main(argv: list[str] | None = None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(c) + "\n" for c in cases))
 
-    counts: dict[str, int] = {}
-    expects: dict[str, int] = {}
-    for c in cases:
-        counts[c["difficulty"]] = counts.get(c["difficulty"], 0) + 1
-        expects[c["expect"]] = expects.get(c["expect"], 0) + 1
+    counts = collections.Counter(c["difficulty"] for c in cases)
+    expects = collections.Counter(c["expect"] for c in cases)
     print(f"{len(cases)} cases -> {out}")
     print("by difficulty: " + ", ".join(f"{k}={v}" for k, v in counts.items()))
     print("by expect: " + ", ".join(f"{k}={v}" for k, v in sorted(expects.items())))
